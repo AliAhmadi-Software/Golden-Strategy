@@ -1,4 +1,4 @@
-# Golden Strategy - README
+# Golden Strategy - (Pine Script)
 
 ## Overview
 The **Golden Strategy** is a backtestable trading strategy written in Pine Script (version 6) for TradingView. This strategy combines multiple technical indicators to identify potential entry and exit points for trades. The strategy utilizes:
