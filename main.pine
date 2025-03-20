@@ -1,0 +1,94 @@
+//@version=6
+strategy(title="Golden Strategy:)", overlay=true)
+
+//-----------------------------------------------------
+// Backtest Time Frame (Start / End)
+//-----------------------------------------------------
+FromM = input.int(defval=1, title="From Month", minval=1, maxval=12)
+FromY = input.int(defval=2025, title="From Year", minval=1900)
+ToM = FromM + 3
+ToY = input.int(defval=2025, title="To Year", minval=1900)
+
+Start = timestamp(FromY, FromM, 00, 00)
+End = timestamp(ToY, ToM, 23, 59)
+
+//-----------------------------------------------------
+//  User Inputs
+//-----------------------------------------------------
+emaLength = input.int(10, "EMA (Short-Term)")
+smaLength = input.int(25, "SMA (Long-Term)")
+fastLengthMACD = input.int(12, "MACD Fast Length")
+slowLengthMACD = input.int(26, "MACD Slow Length")
+sigLengthMACD = input.int(9, "MACD Signal Length")
+rsiLength = input.int(14, "RSI Length")
+rsiLowerBand = input.int(40, "RSI Lower Band")
+rsiUpperBand = input.int(60, "RSI Upper Band")
+
+//--- Fixed Stop Loss / Take Profit ---
+useFixedSLTP = input.bool(true, "Use Fixed % Stop Loss & Take Profit?")
+fixStopLossPerc = input.float(2.0, "Stop Loss (%)", minval=0.1)
+fixTakeProfitPerc = input.float(4.0, "Take Profit (%)", minval=0.1)
+
+//--- Risk per trade (% of current equity) ---
+riskPerTrade = input.float(1.0, "Risk per Trade (%)", minval=0.0, maxval=100.0)
+
+// Volume condition inputs
+volumeLength = input.int(10, "Volume SMA Length")
+
+//-----------------------------------------------------
+//  Indicator Calculations
+//-----------------------------------------------------
+emaValue = ta.ema(close, emaLength)
+smaValue = ta.sma(close, smaLength)
+[macdLine, macdSignal, macdHist] = ta.macd(close, fastLengthMACD, slowLengthMACD, sigLengthMACD)
+rsiValue = ta.rsi(close, rsiLength)
+volumeAvg = ta.sma(volume, volumeLength)
+
+//-----------------------------------------------------
+//  Entry Conditions
+//-----------------------------------------------------
+bullishCross = ta.crossover(emaValue, smaValue)
+upTrendMACD = (macdLine > macdSignal)
+volumeCond = (volume > volumeAvg)
+enterLongCond = bullishCross and upTrendMACD and volumeCond
+
+bearishCross = ta.crossunder(emaValue, smaValue)
+downTrendMACD = (macdLine < macdSignal)
+enterShortCond = bearishCross and downTrendMACD and volumeCond
+
+//-----------------------------------------------------
+//  Exit Conditions
+//-----------------------------------------------------
+exitLongCond = (rsiValue < rsiLowerBand) or (macdLine < macdSignal)
+exitShortCond = (rsiValue > rsiUpperBand) or (macdLine > macdSignal)
+
+//-----------------------------------------------------
+//  Calculate Position Size based on Risk %
+//-----------------------------------------------------
+f_calcPositionSize(stopLossPerc) =>
+    riskCapital = strategy.equity * (riskPerTrade / 100.0)
+    stopDist = close * (stopLossPerc / 100.0)
+    positionSize = riskPerTrade > 0 and stopLossPerc > 0 ? riskCapital / stopDist : 1.0
+    positionSize
+
+//-----------------------------------------------------
+//  Strategy Entries & Exits
+//-----------------------------------------------------
+if (time >= Start and time <= End) 
+    if enterLongCond 
+        strategy.entry(id="Long", direction=strategy.long, qty=f_calcPositionSize(fixStopLossPerc))
+
+    if enterShortCond 
+        strategy.entry(id="Short", direction=strategy.short, qty=f_calcPositionSize(fixStopLossPerc))
+
+    if strategy.position_size > 0 and useFixedSLTP
+        strategy.exit(id="SL/TP Long", from_entry="Long", stop=strategy.position_avg_price * (1.0 - fixStopLossPerc / 100.0), limit=strategy.position_avg_price * (1.0 + fixTakeProfitPerc / 100.0))
+
+    if strategy.position_size < 0 and useFixedSLTP
+        strategy.exit(id="SL/TP Short", from_entry="Short", stop=strategy.position_avg_price * (1.0 + fixStopLossPerc / 100.0), limit=strategy.position_avg_price * (1.0 - fixTakeProfitPerc / 100.0))
+
+    if exitLongCond and strategy.position_size > 0 
+        strategy.close("Long", comment="Exit Long Condition Met")
+
+    if exitShortCond and strategy.position_size < 0 
+        strategy.close("Short", comment="Exit Short Condition Met")
